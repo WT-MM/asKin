@@ -6,7 +6,7 @@ import select
 import sys
 import termios
 from contextlib import contextmanager
-from typing import Awaitable, Callable, Generator, Optional
+from typing import Awaitable, Callable, Generator
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ class KeyboardController:
             timeout: The timeout for the keyboard listener.
         """
         self._key_handler = key_handler
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._timeout = timeout
 
     @contextmanager
