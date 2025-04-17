@@ -15,7 +15,7 @@ pip install askin
 from askin import KeyboardController
 
 class KeyState:
-    def __init__(self):
+    def __init__(self) -> None:
         self.value = 0
     async def update(self, key: str):
         if key == "a":
@@ -23,10 +23,10 @@ class KeyState:
         elif key == "b":
             self.value -= 1
 
-async def key_handler(key: str):
+async def key_handler(key: str) -> None:
     key_state.update(key)
 
-async def main():
+async def main() -> None:
     key_state = KeyState()
     controller = KeyboardController(key_handler=key_state.update, timeout=0.001)
     await controller.start()
