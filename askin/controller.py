@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class KeyboardController:
     """Handles asynchronous keyboard input in a non-blocking way."""
 
-    def __init__(self, key_handler: Callable[[str], Awaitable[None]], timeout: float = 0.001) -> None:
+    def __init__(self, key_handler: Callable[[str], Awaitable[None]], default: Callable[[], Awaitable[None]] | None = None, default_loops_before_trigger: int = 10, timeout: float = 0.001) -> None:
         """Initializes the KeyboardController.
 
         Args:
@@ -25,6 +25,8 @@ class KeyboardController:
         self._key_handler = key_handler
         self._task: asyncio.Task | None = None
         self._timeout = timeout
+        self._default = default
+        self._default_loops_before_trigger = default_loops_before_trigger
 
     @contextmanager
     def _cbreak(self) -> Generator[None, None, None]:
@@ -52,6 +54,8 @@ class KeyboardController:
         logger.info("\nKeyboard control active:")
         logger.info("  Press Ctrl+C to exit\n")
 
+        loop_count = 0
+
         with self._cbreak():
             try:
                 while True:
@@ -68,6 +72,12 @@ class KeyboardController:
 
                         # Call the provided handler
                         await self._key_handler(key)
+                    else:
+                        if self._default:
+                            loop_count += 1
+                            if loop_count >= self._default_loops_before_trigger:
+                                await self._default()
+                                loop_count = 0
 
                     # Yield to other tasks
                     await asyncio.sleep(0.01)
