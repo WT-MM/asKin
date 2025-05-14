@@ -14,12 +14,20 @@ logger = logging.getLogger(__name__)
 class KeyboardController:
     """Handles asynchronous keyboard input in a non-blocking way."""
 
-    def __init__(self, key_handler: Callable[[str], Awaitable[None]], default: Callable[[], Awaitable[None]] | None = None, default_loops_before_trigger: int = 10, timeout: float = 0.001) -> None:
+    def __init__(
+        self,
+        key_handler: Callable[[str], Awaitable[None]],
+        default: Callable[[], Awaitable[None]] | None = None,
+        default_loops_before_trigger: int = 10,
+        timeout: float = 0.001,
+    ) -> None:
         """Initializes the KeyboardController.
 
         Args:
             key_handler: An async function to call when a key is pressed.
                          It receives the pressed key (str) as an argument.
+            default: An async function to call when no key is pressed.
+            default_loops_before_trigger: The number of loops to wait before triggering the default function.
             timeout: The timeout for the keyboard listener.
         """
         self._key_handler = key_handler
@@ -72,12 +80,11 @@ class KeyboardController:
 
                         # Call the provided handler
                         await self._key_handler(key)
-                    else:
-                        if self._default:
-                            loop_count += 1
-                            if loop_count >= self._default_loops_before_trigger:
-                                await self._default()
-                                loop_count = 0
+                    elif self._default:
+                        loop_count += 1
+                        if loop_count >= self._default_loops_before_trigger:
+                            await self._default()
+                            loop_count = 0
 
                     # Yield to other tasks
                     await asyncio.sleep(0.01)
