@@ -4,9 +4,15 @@ import asyncio
 import logging
 import select
 import sys
-import termios
 from contextlib import contextmanager
 from typing import Awaitable, Callable, Generator
+
+try:
+    import termios
+
+    _TERMIOS_AVAILABLE = True
+except ImportError:
+    _TERMIOS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +36,8 @@ class KeyboardController:
             default_loops_before_trigger: The number of loops to wait before triggering the default function.
             timeout: The timeout for the keyboard listener.
         """
+        if not _TERMIOS_AVAILABLE:
+            raise RuntimeError("KeyboardController requires termios (Unix only)")
         self._key_handler = key_handler
         self._task: asyncio.Task | None = None
         self._timeout = timeout
