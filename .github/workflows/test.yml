@@ -20,7 +20,10 @@ concurrency:
 jobs:
   run-base-tests:
     timeout-minutes: 10
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v3
@@ -47,13 +50,13 @@ jobs:
           pip install --upgrade --upgrade-strategy eager --extra-index-url https://download.pytorch.org/whl/cpu -e '.[dev]'
 
       - name: Run static checks
+        if: runner.os != 'Windows'
         run: |
           mkdir -p .mypy_cache
           make static-checks
 
       - name: Run unit tests
-        run: |
-          make test
+        run: python -m pytest
 
       - name: Save cache
         uses: actions/cache/save@v3
