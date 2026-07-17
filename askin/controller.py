@@ -2,13 +2,56 @@
 
 import asyncio
 import logging
-import select
 import sys
-import termios
+import time
 from contextlib import contextmanager
 from typing import Awaitable, Callable, Generator
 
 logger = logging.getLogger(__name__)
+
+
+if sys.platform == "win32":
+    import msvcrt
+
+    @contextmanager
+    def _cbreak() -> Generator[None, None, None]:
+        # Windows console reads chars directly via msvcrt — no terminal mode setup needed.
+        yield
+
+    def _read_key(timeout: float) -> str | None:
+        deadline = time.monotonic() + timeout
+        while True:
+            if msvcrt.kbhit():
+                return msvcrt.getwch()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            time.sleep(min(0.001, remaining))
+
+else:
+    import select
+    import termios
+
+    @contextmanager
+    def _cbreak() -> Generator[None, None, None]:
+        """Put the terminal in cbreak mode for char-by-char input without echo."""
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            new_settings = termios.tcgetattr(fd)
+            new_settings[3] = new_settings[3] & ~termios.ECHO
+            new_settings[3] = new_settings[3] & ~termios.ICANON
+            new_settings[6][termios.VMIN] = 0
+            new_settings[6][termios.VTIME] = 0
+            termios.tcsetattr(fd, termios.TCSADRAIN, new_settings)
+            yield
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+    def _read_key(timeout: float) -> str | None:
+        if select.select([sys.stdin], [], [], timeout)[0]:
+            return sys.stdin.read(1)
+        return None
 
 
 class KeyboardController:
@@ -36,27 +79,6 @@ class KeyboardController:
         self._default = default
         self._default_loops_before_trigger = default_loops_before_trigger
 
-    @contextmanager
-    def _cbreak(self) -> Generator[None, None, None]:
-        """Context manager for terminal cbreak mode - allows char-by-char input without echo."""
-        try:
-            # Save original terminal settings
-            fd = sys.stdin.fileno()
-            old_settings = termios.tcgetattr(fd)
-
-            # Configure terminal for cbreak mode
-            new_settings = termios.tcgetattr(fd)
-            new_settings[3] = new_settings[3] & ~termios.ECHO  # Disable echo
-            new_settings[3] = new_settings[3] & ~termios.ICANON  # Disable canonical mode
-            new_settings[6][termios.VMIN] = 0  # No blocking
-            new_settings[6][termios.VTIME] = 0  # No timeout
-            termios.tcsetattr(fd, termios.TCSADRAIN, new_settings)
-
-            yield
-        finally:
-            # Restore terminal settings
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
     async def _run_loop(self) -> None:
         """The main loop that listens for keyboard input."""
         logger.info("\nKeyboard control active:")
@@ -64,21 +86,18 @@ class KeyboardController:
 
         loop_count = 0
 
-        with self._cbreak():
+        with _cbreak():
             try:
                 while True:
-                    # Check if input is available
-                    if select.select([sys.stdin], [], [], self._timeout)[0]:
-                        key = sys.stdin.read(1)
-                        if key == "\x03":  # Ctrl+C
+                    key = _read_key(self._timeout)
+                    if key is not None:
+                        if key == "\x03":  # Ctrl+C (Unix only; Windows raises KeyboardInterrupt)
                             logger.info("Ctrl+C detected by keyboard listener.")
-                            # Request main loop cancellation (handled by KeyboardInterrupt propagation)
                             current_task = asyncio.current_task()
                             if current_task:
                                 current_task.get_loop().call_soon(current_task.get_loop().stop)
                             break
 
-                        # Call the provided handler
                         await self._key_handler(key)
                     elif self._default:
                         loop_count += 1
@@ -86,7 +105,6 @@ class KeyboardController:
                             await self._default()
                             loop_count = 0
 
-                    # Yield to other tasks
                     await asyncio.sleep(0.01)
             except asyncio.CancelledError:
                 logger.debug("Keyboard listener task cancelled.")
